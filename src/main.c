@@ -27,6 +27,8 @@
 // INPUT
 #define CYP1 PINA0
 #define IGN PINA2
+#define CKP PINA4
+#define TDC PINA5
 
 // VARS
 uint8_t CYLINDER = 0;
@@ -116,29 +118,60 @@ ISR(PCINT0_vect)
                 /***/
         }
 
-        // Check IGN only after CYP1 triggered
-        if (((PINA & _BV(IGN)) == 0) && (CYLINDER != 0))
+
+       // CKP pulse detection
+    if (!(PINA & (1 << CKP)))
+    {
+        // CKP pulse detected
+        _delay_us(1); // Delay to allow 3x CKP pulses
+        if (!(PINA & (1 << CKP)))
         {
-                // Start FIRE - LOW after first CYP1
-                PORTA |= _BV(TACHO); // ON TACH
-                Ignite_ON();
-                SPARKS++; // counter for RPM calc
-                while ((PINA & _BV(IGN)) == 0)
+            // Two more CKP pulses detected
+            _delay_us(1);
+            if (!(PINA & (1 << CKP)))
+            {
+                // Third CKP pulse detected
+                if (CYLINDER != 0)
                 {
-                        // Wait end of IGN signal
+                    SPARKS++; // Increase SPARKS counter
+
+                    // Check IGN only after CKP pulse and CYP1 triggered
+                    if (!(PINA & (1 << IGN)))
+                    {
+                        // Start FIRE - LOW after CKP pulse and CYP1
+                        PORTA |= (1 << TACHO); // ON TACH
+                        Ignite_ON();
+
+                        while (!(PINA & (1 << IGN)))
+                        {
+                            // Wait end of IGN signal
+                        }
+
+                        Ignite_Off();
+                        PORTA &= ~(1 << TACHO); // OFF TACH
+                        CYLINDER++;
+
+                        if (CYLINDER > 4)
+                        {
+                            // If we lost CYP1 signal, start from first anyway
+                            CYLINDER = 1;
+                        }
+                    }
                 }
-                Ignite_Off();
-                PORTA &= ~_BV(TACHO); // OFF TACH
-                CYLINDER++;
-                if (CYLINDER > 4)
-                {
-                        // if we lost CYP1 signal start from first any way
-                        CYLINDER = 1;
-                }
+            }
         }
+    }
+    if (!(PINA & (1 << TDC)))
+    {
+        // TDC pulse detected
+        if (CYLINDER != 1)
+        {
+                CYLINDER = 1;
+                Led_ON();
+        }
+    }
         sei();
 }
-
 int main(void)
 {
         cli();
